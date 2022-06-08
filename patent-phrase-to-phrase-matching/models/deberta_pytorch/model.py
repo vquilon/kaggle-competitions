@@ -119,7 +119,8 @@ class PPPMTrainerDefinition(pl.LightningModule):
 
         self.criterion = criterion
         self.metric = metric
-        self.scaler = torch.cuda.amp.GradScaler(enabled=self.config.apex)
+        # self.scaler = torch.cuda.amp.GradScaler(enabled=self.config.apex)
+        self.scaler = None
         self.train_ds_size = train_ds_size
 
         # Model Load
@@ -253,7 +254,7 @@ class PPPMTrainerDefinition(pl.LightningModule):
             'grad_norm': grad_norm
         }
         self.log_dict(logs, on_step=False, on_epoch=True, prog_bar=True, logger=True)
-        return loss
+        return logs
 
     # def training_step(self, batch, batch_idx):
     #     token_type_ids, attention_mask = batch[0], batch[1]
@@ -265,8 +266,8 @@ class PPPMTrainerDefinition(pl.LightningModule):
     #     return loss
 
     def training_epoch_end(self, outputs):
-        avg_loss = torch.stack([x['train_loss'] for x in outputs]).mean()
-        avg_error = torch.stack([x['train_error'] for x in outputs]).mean()
+        avg_loss = np.mean([x['train_loss'] for x in outputs])
+        avg_error = np.mean([x['train_error'] for x in outputs])
         logs = {'avg_loss': avg_loss, 'avg_error': avg_error}
         self.log_dict(logs, on_epoch=True, prog_bar=True, logger=True)
         return {**logs, 'log': logs}
@@ -280,17 +281,17 @@ class PPPMTrainerDefinition(pl.LightningModule):
         if self.config.gradient_accumulation_steps > 1:
             loss = loss / self.config.gradient_accumulation_steps
 
-        rmse = self.metric(y_preds.squeeze(1), batch[2])
+        rmse = self.metric(y_preds.squeeze(1), labels)
         score = KF.get_pearsonr_score(labels, y_preds.squeeze(1))
 
         logs = {'val_loss': loss, 'val_error': rmse, 'val_score': score}
         self.log_dict(logs, on_step=False, on_epoch=True, prog_bar=True, logger=True)
-        return loss
+        return logs
 
     def validation_epoch_end(self, outputs):
-        avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
-        avg_error = torch.stack([x['val_error'] for x in outputs]).mean()
-        avg_score = torch.stack([x['val_score'] for x in outputs]).mean()
+        avg_loss = np.mean([x['val_loss'] for x in outputs])
+        avg_error = np.mean([x['val_error'] for x in outputs])
+        avg_score = np.mean([x['val_score'] for x in outputs])
         logs = {'val_avg_loss': avg_loss, 'val_avg_error': avg_error, 'val_avg_score': avg_score}
         self.log_dict(logs, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         return {**logs, 'log': logs}
@@ -308,12 +309,12 @@ class PPPMTrainerDefinition(pl.LightningModule):
 
         logs = {'test_loss': loss, 'test_error': rmse, 'test_score': score}
         self.log_dict(logs, on_step=False, on_epoch=True, prog_bar=True, logger=True)
-        return loss
+        return logs
 
     def test_epoch_end(self, outputs):
-        avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
-        avg_error = torch.stack([x['val_error'] for x in outputs]).mean()
-        avg_score = torch.stack([x['val_score'] for x in outputs]).mean()
+        avg_loss = np.mean([x['val_loss'] for x in outputs])
+        avg_error = np.mean([x['val_error'] for x in outputs])
+        avg_score = np.mean([x['val_score'] for x in outputs])
         logs = {'val_avg_loss': avg_loss, 'val_avg_error': avg_error, 'val_avg_score': avg_score}
         self.log_dict(logs, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         return {**logs, 'log': logs}

@@ -11,23 +11,19 @@ from patent_phrase_similarity.models.deberta_pytorch import CFG
 
 
 class PPPMDataset(Dataset):
-    def __init__(self, df, tokenizer, training=True):
+    def __init__(self, df, tokenizer, for_training=True):
         self.config = CFG()
         self.df = df
         self.tokenizer = tokenizer
-        self.training = training
-        self.tokenizer_params = dict(
-            max_length=self.config.max_len,
-            add_special_tokens=True,
-            #padding="max_length",
-            #truncation=True,
-            return_attention_mask=True,
-            return_token_type_ids=self.config.token_type_ids,
-            return_offsets_mapping=False
-        )
+        self.training = for_training
+        if for_training:
+            self.labels = df.score.values
 
     def __len__(self):
-        return self.df.shape[0]
+        if self.training:
+            return len(self.df)
+        else:
+            return len(self.labels)
 
     def __getitem__(self, index):
         anchor = self.df.anchor.iloc[index].lower()
@@ -35,13 +31,25 @@ class PPPMDataset(Dataset):
         title = self.df.title.iloc[index].lower()
 
         SEP = self.tokenizer.sep_token
-        tokens = self.tokenizer(f"{anchor}{SEP}{target}{SEP}{title}", **self.tokenizer_params)
-        score = torch.tensor(self.df.score.iloc[index], dtype=torch.float32)
+        tokens = self.tokenizer(
+            f"{anchor}{SEP}{target}{SEP}{title}",
+            max_length=self.config.max_len,
+            add_special_tokens=True,
+            padding="max_length",
+            # truncation=True,
+            return_attention_mask=True,
+            return_token_type_ids=self.config.token_type_ids,
+            return_offsets_mapping=False
+        )
+        for k, v in tokens.items():
+            tokens[k] = torch.tensor(v, dtype=torch.long)
+
+        label = torch.tensor(self.labels[index], dtype=torch.float32)
 
         if self.training:
-            return np.array(tokens['input_ids']), np.array(tokens['attention_mask']), score
+            return tokens['input_ids'], tokens['attention_mask'], label
 
-        return np.array(tokens['input_ids']), np.array(tokens['attention_mask'])
+        return tokens['input_ids'], tokens['attention_mask']
 
 
 class CustomDataset(Dataset):
@@ -210,13 +218,22 @@ class PPPMDatasetManager(pl.LightningDataModule):
     def prepare_data(self):
         self.train_dataset = PPPMDataset(self.train_oof_df, self.tokenizer)
         self.valid_dataset = PPPMDataset(self.valid_oof_df, self.tokenizer)
-        self.test_dataset = PPPMDataset(self.test_df, self.tokenizer)
+        self.test_dataset = PPPMDataset(self.test_df, self.tokenizer, for_training=False)
 
     def train_dataloader(self):
-        return DataLoader(self.train_dataset, batch_size=self.config.batch_size, shuffle=True)
+        return DataLoader(
+            self.train_dataset, batch_size=self.config.batch_size, shuffle=True,
+            pin_memory=True, drop_last=True
+        )
 
     def val_dataloader(self):
-        return DataLoader(self.valid_dataset, batch_size=self.config.batch_size, shuffle=False)
+        return DataLoader(
+            self.valid_dataset, batch_size=self.config.batch_size, shuffle=False,
+            pin_memory=True, drop_last=False
+        )
 
     def test_dataloader(self):
-        return DataLoader(self.test_dataset, batch_size=self.config.batch_size, shuffle=False)
+        return DataLoader(
+            self.test_dataset, batch_size=self.config.batch_size, shuffle=False,
+            pin_memory=True, drop_last=False
+        )
